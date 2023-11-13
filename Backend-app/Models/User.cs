@@ -14,5 +14,7 @@ namespace Backend_app.Models
         public string Kereszt_nev { get; set; }
         public string Email { get; set; }
         public string PhoneNo { get; set; }
+
+        public string számla { get; set; }
     }
 }
