@@ -16,5 +16,6 @@ namespace Backend_app.Models
         public string PhoneNo { get; set; }
 
         public string számla { get; set; }
+        public int Felhasz_id { get; set; }
     }
 }

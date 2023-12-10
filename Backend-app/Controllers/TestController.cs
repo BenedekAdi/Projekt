@@ -38,6 +38,17 @@ namespace Backend_app.Controllers
                 conn.Close();
                 if (i > 0)
                 {
+                    cmd = new SqlCommand("SELECT Felhasz_id FROM Felhasznalo WHERE email = @email", conn);
+                    cmd.Parameters.AddWithValue("@email", user.Email);
+                    user.Felhasz_id = (int)cmd.ExecuteScalar();
+
+                    if (user.Felhasz_id > 0)
+                    {
+                        cmd = new SqlCommand("INSERT INTO Szamla (Felhasz_id, Datum, Osszeg, Leiras) VALUES (@Felhasz_id, GETDATE(), 0, 'Kezdeti számla')", conn);
+                        cmd.Parameters.AddWithValue("@Felhasz_id", user.Felhasz_id);
+                        cmd.ExecuteNonQuery();
+                    }
+
                     msg = "Data inserted.";
                 }
                 else
@@ -49,6 +60,7 @@ namespace Backend_app.Controllers
             {
                 msg = ex.Message;
             }
+            finally { conn.Close(); }
             
             return msg;
         }
@@ -83,5 +95,116 @@ namespace Backend_app.Controllers
 
             return msg;
         }
-    }
+
+        [HttpGet]
+        [Route("GetInvoiceHistory/{userId}")]
+        public IHttpActionResult GetInvoiceHistory(int userId)
+        {
+            try
+            {
+                cmd = new SqlCommand("SELECT * FROM Szamla WHERE Felhasz_id = @Felhasz_id", conn);
+                cmd.Parameters.AddWithValue("@Felhasz_id", userId);
+
+                conn.Open();
+                SqlDataReader reader = cmd.ExecuteReader();
+
+                List<Invoice> invoices = new List<Invoice>();
+
+                while (reader.Read())
+                {
+                    Invoice invoice = new Invoice
+                    {
+                        SzamlaID = (int)reader["SzamlaID"],
+                        FelhasznaloID = (int)reader["Felhasz_id"],
+                        Datum = (DateTime)reader["Datum"],
+                        Osszeg = (decimal)reader["Osszeg"],
+                        Leiras = reader["Leiras"].ToString()
+                    };
+
+                    invoices.Add(invoice);
+                }
+
+                conn.Close();
+
+                return Ok(invoices);
+            }
+            catch (Exception ex)
+            {
+                return InternalServerError(ex);
+            }
+        }
+
+
+        [HttpPost]
+        [Route("TransferMoney")]
+        public string TransferMoney(int feladoID, int cimzettID, decimal osszeg)
+        {
+            string msg = string.Empty;
+            try
+            {
+                
+                cmd = new SqlCommand("SELECT Egyenleg FROM Szamla WHERE Felhasz_id = @Felhasz_id", conn);
+                cmd.Parameters.AddWithValue("@Felhasz_id", feladoID);
+                conn.Open();
+                decimal egyenleg = (decimal)cmd.ExecuteScalar();
+                conn.Close();
+
+                if (egyenleg >= osszeg)
+                {
+                    
+                    conn.Open();
+                    SqlTransaction transaction = conn.BeginTransaction();
+                    cmd = new SqlCommand("INSERT INTO Utalas (Felhasz_id, CimzettID, Osszeg, Datum) VALUES (@Felhasz_id, @CimzettID, @Osszeg, GETDATE())", conn, transaction);
+                    cmd.Parameters.AddWithValue("@FeladoID", feladoID);
+                    cmd.Parameters.AddWithValue("@CimzettID", cimzettID);
+                    cmd.Parameters.AddWithValue("@Osszeg", osszeg);
+
+                    int i = cmd.ExecuteNonQuery();
+
+                    
+                    if (i > 0)
+                    {
+                        cmd = new SqlCommand("UPDATE Szamla SET Egyenleg = Egyenleg - @Osszeg WHERE Felhasz_id = @Felhasz_id", conn, transaction);
+                        cmd.Parameters.AddWithValue("@Osszeg", osszeg);
+                        cmd.Parameters.AddWithValue("@Felhasz_id", feladoID);
+                        cmd.ExecuteNonQuery();
+
+                        
+                        cmd = new SqlCommand("UPDATE Szamla SET Egyenleg = Egyenleg + @Osszeg WHERE Felhasz_id = @Felhasz_id", conn, transaction);
+                        cmd.Parameters.AddWithValue("@Osszeg", osszeg);
+                        cmd.Parameters.AddWithValue("@Felhasz_id", cimzettID);
+                        cmd.ExecuteNonQuery();
+
+                        transaction.Commit();
+                        msg = "Transfer successful.";
+                    }
+                    else
+                    {
+                        transaction.Rollback();
+                        msg = "Transfer failed.";
+                    }
+
+                    conn.Close();
+                }
+                else
+                {
+                    msg = "Insufficient funds.";
+                }
+            }
+            catch (Exception ex)
+            {
+                msg = ex.Message;
+            }
+            finally
+            {
+                conn.Close();
+            }
+
+            return msg;
+        }
+
+
+
+
+    }//routerprefic vége
 }
